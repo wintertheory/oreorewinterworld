@@ -131,8 +131,9 @@ async function initCamera() {
 
   canvas.width = CONFIG.VIDEO_WIDTH;
   canvas.height = CONFIG.VIDEO_HEIGHT;
-  canvas.style.width = `${CONFIG.VIDEO_WIDTH}px`;
-  canvas.style.height = `${CONFIG.VIDEO_HEIGHT}px`;
+  // iPhone Safari 대응: CSS 반응형 비율을 유지하도록 inline 고정 크기는 지정하지 않습니다.
+  canvas.style.width = "";
+  canvas.style.height = "";
 
   offscreenMaskCanvas.width = CONFIG.VIDEO_WIDTH;
   offscreenMaskCanvas.height = CONFIG.VIDEO_HEIGHT;
@@ -543,13 +544,16 @@ function drawOutline() {
 function drawSnowParticle(p, settled = false) {
   ctx.save();
 
-  ctx.globalAlpha = p.alpha;
+  // iOS Safari에서는 canvas text + shadowBlur + globalAlpha 조합이 불안정할 수 있어
+  // fillStyle / shadowColor의 rgba alpha에 직접 반영합니다.
+  const alpha = clamp(p.alpha, 0, 1);
+
   ctx.font = `${CONFIG.PARTICLE_SIZE}px Dotum, 돋움, Apple SD Gothic Neo, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillStyle = settled ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.68)";
-  ctx.shadowColor = "rgba(255,255,255,0.75)";
-  ctx.shadowBlur = settled ? 5 : 9;
+  ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+  ctx.shadowColor = `rgba(255,255,255,${alpha * 0.7})`;
+  ctx.shadowBlur = settled ? 4 : 7;
   ctx.fillText("눈", p.x, p.y);
 
   ctx.restore();
