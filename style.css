@@ -52,8 +52,9 @@ body {
 }
 
 .stage-wrap {
-  width: min(100vw - 32px, 960px);
+  width: min(calc(100vw - 32px), 960px);
   max-width: 100%;
+  /* 실제 카메라 비율은 main.js에서 aspect-ratio inline style로 주입됩니다. */
   aspect-ratio: 16 / 9;
   position: relative;
   display: flex;
@@ -66,6 +67,8 @@ body {
   display: block;
   width: 100%;
   height: auto;
+  max-height: calc(100vh - 120px);
+  object-fit: contain;
   aspect-ratio: 16 / 9;
   background: #ffffff;
 }
