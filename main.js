@@ -87,6 +87,28 @@ let offscreenMaskCanvas = document.createElement("canvas");
 let offscreenMaskCtx = offscreenMaskCanvas.getContext("2d", { willReadFrequently: true });
 let stackMap = new Map();
 
+// iOS Safari에서는 요청한 카메라 크기와 실제 video 크기가 다를 수 있습니다.
+// 모든 계산(canvas, mask, particle, outline)을 실제 video 해상도 기준으로 맞춥니다.
+let STAGE_WIDTH = STAGE_WIDTH;
+let STAGE_HEIGHT = STAGE_HEIGHT;
+
+function setStageSize(width, height) {
+  STAGE_WIDTH = Math.max(1, Math.round(width || CONFIG.VIDEO_WIDTH));
+  STAGE_HEIGHT = Math.max(1, Math.round(height || CONFIG.VIDEO_HEIGHT));
+
+  canvas.width = STAGE_WIDTH;
+  canvas.height = STAGE_HEIGHT;
+
+  // CSS는 실제 비율만 전달하고, 픽셀 크기는 반응형 CSS에 맡깁니다.
+  canvas.style.width = "";
+  canvas.style.height = "";
+  canvas.style.aspectRatio = `${STAGE_WIDTH} / ${STAGE_HEIGHT}`;
+  canvas.parentElement?.style.setProperty("aspect-ratio", `${STAGE_WIDTH} / ${STAGE_HEIGHT}`);
+
+  offscreenMaskCanvas.width = STAGE_WIDTH;
+  offscreenMaskCanvas.height = STAGE_HEIGHT;
+}
+
 function rand(min, max) {
   return min + Math.random() * (max - min);
 }
@@ -124,19 +146,17 @@ async function initCamera() {
   });
 
   video.srcObject = stream;
-  video.width = CONFIG.VIDEO_WIDTH;
-  video.height = CONFIG.VIDEO_HEIGHT;
 
   await video.play();
 
-  canvas.width = CONFIG.VIDEO_WIDTH;
-  canvas.height = CONFIG.VIDEO_HEIGHT;
-  // iPhone Safari 대응: CSS 반응형 비율을 유지하도록 inline 고정 크기는 지정하지 않습니다.
-  canvas.style.width = "";
-  canvas.style.height = "";
+  // iOS Safari는 ideal 960x540 요청을 무시하고 4:3 또는 기기 고유 해상도를 줄 수 있습니다.
+  // 실제 입력 해상도를 기준으로 canvas/mask/particle 좌표계를 다시 맞춥니다.
+  const actualVideoWidth = video.videoWidth || CONFIG.VIDEO_WIDTH;
+  const actualVideoHeight = video.videoHeight || CONFIG.VIDEO_HEIGHT;
 
-  offscreenMaskCanvas.width = CONFIG.VIDEO_WIDTH;
-  offscreenMaskCanvas.height = CONFIG.VIDEO_HEIGHT;
+  video.width = actualVideoWidth;
+  video.height = actualVideoHeight;
+  setStageSize(actualVideoWidth, actualVideoHeight);
 }
 
 function initSegmentation() {
@@ -160,16 +180,16 @@ async function processSegmentationFrame() {
 function processSegmentation(results) {
   latestMaskCanvas = results.segmentationMask;
 
-  offscreenMaskCtx.clearRect(0, 0, CONFIG.VIDEO_WIDTH, CONFIG.VIDEO_HEIGHT);
+  offscreenMaskCtx.clearRect(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
   offscreenMaskCtx.drawImage(
     latestMaskCanvas,
     0,
     0,
-    CONFIG.VIDEO_WIDTH,
-    CONFIG.VIDEO_HEIGHT
+    STAGE_WIDTH,
+    STAGE_HEIGHT
   );
 
-  const imageData = offscreenMaskCtx.getImageData(0, 0, CONFIG.VIDEO_WIDTH, CONFIG.VIDEO_HEIGHT);
+  const imageData = offscreenMaskCtx.getImageData(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
 
   previousMaskData = latestMaskData;
   latestMaskData = imageData.data;
@@ -191,28 +211,28 @@ function processSegmentation(results) {
 function isMaskSolid(x, y) {
   if (!latestMaskData) return false;
 
-  const ix = Math.floor(clamp(x, 0, CONFIG.VIDEO_WIDTH - 1));
-  const iy = Math.floor(clamp(y, 0, CONFIG.VIDEO_HEIGHT - 1));
-  const idx = (iy * CONFIG.VIDEO_WIDTH + ix) * 4;
+  const ix = Math.floor(clamp(x, 0, STAGE_WIDTH - 1));
+  const iy = Math.floor(clamp(y, 0, STAGE_HEIGHT - 1));
+  const idx = (iy * STAGE_WIDTH + ix) * 4;
 
   return latestMaskData[idx] > CONFIG.MASK_THRESHOLD;
 }
 
 function getSubjectSurface() {
-  const surface = new Array(CONFIG.VIDEO_WIDTH).fill(null);
+  const surface = new Array(STAGE_WIDTH).fill(null);
   if (!latestMaskData) return surface;
 
-  for (let x = 0; x < CONFIG.VIDEO_WIDTH; x += CONFIG.MASK_SAMPLE_STEP) {
+  for (let x = 0; x < STAGE_WIDTH; x += CONFIG.MASK_SAMPLE_STEP) {
     let topY = null;
 
-    for (let y = 0; y < CONFIG.VIDEO_HEIGHT; y += CONFIG.MASK_SAMPLE_STEP) {
+    for (let y = 0; y < STAGE_HEIGHT; y += CONFIG.MASK_SAMPLE_STEP) {
       if (isMaskSolid(x, y)) {
         topY = y;
         break;
       }
     }
 
-    for (let fillX = x; fillX < x + CONFIG.MASK_SAMPLE_STEP && fillX < CONFIG.VIDEO_WIDTH; fillX++) {
+    for (let fillX = x; fillX < x + CONFIG.MASK_SAMPLE_STEP && fillX < STAGE_WIDTH; fillX++) {
       surface[fillX] = topY;
     }
   }
@@ -229,9 +249,9 @@ function detectMovement() {
   let count = 0;
   const step = CONFIG.MASK_SAMPLE_STEP * 2;
 
-  for (let y = 0; y < CONFIG.VIDEO_HEIGHT; y += step) {
-    for (let x = 0; x < CONFIG.VIDEO_WIDTH; x += step) {
-      const idx = (y * CONFIG.VIDEO_WIDTH + x) * 4;
+  for (let y = 0; y < STAGE_HEIGHT; y += step) {
+    for (let x = 0; x < STAGE_WIDTH; x += step) {
+      const idx = (y * STAGE_WIDTH + x) * 4;
       diff += Math.abs(latestMaskData[idx] - previousMaskData[idx]) / 255;
       count++;
     }
@@ -239,9 +259,9 @@ function detectMovement() {
 
   // 손/팔처럼 국소적으로 크게 움직인 부분을 따로 저장한다.
   // 이 좌표 주변에 쌓인 눈을 더 강하게 흩뿌려서 "털어내는" 느낌을 만든다.
-  for (let y = 0; y < CONFIG.VIDEO_HEIGHT; y += CONFIG.SWEEP_SAMPLE_STEP) {
-    for (let x = 0; x < CONFIG.VIDEO_WIDTH; x += CONFIG.SWEEP_SAMPLE_STEP) {
-      const idx = (y * CONFIG.VIDEO_WIDTH + x) * 4;
+  for (let y = 0; y < STAGE_HEIGHT; y += CONFIG.SWEEP_SAMPLE_STEP) {
+    for (let x = 0; x < STAGE_WIDTH; x += CONFIG.SWEEP_SAMPLE_STEP) {
+      const idx = (y * STAGE_WIDTH + x) * 4;
       const localDiff = Math.abs(latestMaskData[idx] - previousMaskData[idx]);
 
       if (localDiff > CONFIG.SWEEP_DIFF_THRESHOLD) {
@@ -260,8 +280,8 @@ function detectMovement() {
 
 function createParticle(yOverride = null) {
   return {
-    x: rand(0, CONFIG.VIDEO_WIDTH),
-    y: yOverride ?? rand(-CONFIG.VIDEO_HEIGHT, 0),
+    x: rand(0, STAGE_WIDTH),
+    y: yOverride ?? rand(-STAGE_HEIGHT, 0),
     speed: rand(CONFIG.PARTICLE_SPEED_MIN, CONFIG.PARTICLE_SPEED_MAX),
     drift: rand(CONFIG.DRIFT_MIN, CONFIG.DRIFT_MAX),
     alpha: rand(CONFIG.FALLING_ALPHA_MIN, CONFIG.FALLING_ALPHA_MAX),
@@ -285,7 +305,7 @@ function shouldSettle(p) {
   if (!subjectSurface || !subjectSurface.length) return false;
 
   const bottomY = p.y + CONFIG.PARTICLE_SIZE * 0.45;
-  const sx = Math.floor(clamp(p.x, 0, CONFIG.VIDEO_WIDTH - 1));
+  const sx = Math.floor(clamp(p.x, 0, STAGE_WIDTH - 1));
   const surfaceY = subjectSurface[sx];
 
   let targetY = null;
@@ -350,15 +370,15 @@ function updateParticles() {
       p.x += p.drift + Math.sin(p.wobble) * 0.15;
     }
 
-    if (p.x < -40) p.x = CONFIG.VIDEO_WIDTH + 40;
-    if (p.x > CONFIG.VIDEO_WIDTH + 40) p.x = -40;
+    if (p.x < -40) p.x = STAGE_WIDTH + 40;
+    if (p.x > STAGE_WIDTH + 40) p.x = -40;
 
     if (shouldSettle(p)) {
       settledParticles.push(p);
       continue;
     }
 
-    if (p.y > CONFIG.VIDEO_HEIGHT + 40) {
+    if (p.y > STAGE_HEIGHT + 40) {
       stillFalling.push(createParticle(-40));
     } else {
       stillFalling.push(p);
@@ -495,7 +515,7 @@ function togglePause() {
 }
 
 function drawVideo() {
-  ctx.drawImage(video, 0, 0, CONFIG.VIDEO_WIDTH, CONFIG.VIDEO_HEIGHT);
+  ctx.drawImage(video, 0, 0, STAGE_WIDTH, STAGE_HEIGHT);
 }
 
 function drawMaskDebug() {
@@ -503,7 +523,7 @@ function drawMaskDebug() {
 
   ctx.save();
   ctx.globalAlpha = 0.28;
-  ctx.drawImage(latestMaskCanvas, 0, 0, CONFIG.VIDEO_WIDTH, CONFIG.VIDEO_HEIGHT);
+  ctx.drawImage(latestMaskCanvas, 0, 0, STAGE_WIDTH, STAGE_HEIGHT);
   ctx.restore();
 }
 
@@ -560,7 +580,7 @@ function drawSnowParticle(p, settled = false) {
 }
 
 function drawScene() {
-  ctx.clearRect(0, 0, CONFIG.VIDEO_WIDTH, CONFIG.VIDEO_HEIGHT);
+  ctx.clearRect(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
 
   drawVideo();
   drawMaskDebug();
