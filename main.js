@@ -88,9 +88,10 @@ let offscreenMaskCtx = offscreenMaskCanvas.getContext("2d", { willReadFrequently
 let stackMap = new Map();
 
 // iPhone Safari 대응 구조:
-// video는 DOM 레이어에서 object-fit: cover로 직접 표시하고,
+// video는 DOM 레이어에서 object-fit: contain으로 직접 표시하고,
 // canvas는 그 위에 눈/외곽선만 그리는 투명 overlay로 사용합니다.
-// 이렇게 해야 카메라 화면이 canvas로 강제 stretch 되지 않습니다.
+// 모바일에서는 실제 카메라 비율을 stage aspect-ratio에 반영해
+// 전면 카메라 화면이 위아래로 잘리지 않게 합니다.
 const stageWrap = document.querySelector(".stage-wrap");
 let STAGE_WIDTH = CONFIG.VIDEO_WIDTH;
 let STAGE_HEIGHT = CONFIG.VIDEO_HEIGHT;
@@ -125,33 +126,45 @@ function setStageSize(preserveParticles = false) {
   }
 }
 
-function getCoverSourceRect(sourceWidth, sourceHeight, destWidth = STAGE_WIDTH, destHeight = STAGE_HEIGHT) {
+function isMobileSafariLike() {
+  return /iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+function syncStageAspectToVideo() {
+  if (!stageWrap || !video.videoWidth || !video.videoHeight) return;
+
+  // iPhone Safari에서는 16:9 박스에 cover로 채우면 전면 카메라 상하가 잘릴 수 있습니다.
+  // 실제 카메라 입력 비율을 stage 자체에 반영해서 전체 화면이 보이게 합니다.
+  stageWrap.style.setProperty("--stage-aspect", `${video.videoWidth} / ${video.videoHeight}`);
+}
+
+function getContainDestRect(sourceWidth, sourceHeight, destWidth = STAGE_WIDTH, destHeight = STAGE_HEIGHT) {
   const sw0 = Math.max(1, sourceWidth || destWidth);
   const sh0 = Math.max(1, sourceHeight || destHeight);
   const sourceRatio = sw0 / sh0;
   const destRatio = destWidth / destHeight;
 
-  let sx = 0;
-  let sy = 0;
-  let sw = sw0;
-  let sh = sh0;
+  let dx = 0;
+  let dy = 0;
+  let dw = destWidth;
+  let dh = destHeight;
 
   if (sourceRatio > destRatio) {
-    sw = sh0 * destRatio;
-    sx = (sw0 - sw) / 2;
+    dh = destWidth / sourceRatio;
+    dy = (destHeight - dh) / 2;
   } else if (sourceRatio < destRatio) {
-    sh = sw0 / destRatio;
-    sy = (sh0 - sh) / 2;
+    dw = destHeight * sourceRatio;
+    dx = (destWidth - dw) / 2;
   }
 
-  return { sx, sy, sw, sh };
+  return { dx, dy, dw, dh };
 }
 
-function drawImageCover(image, destCtx = ctx, destWidth = STAGE_WIDTH, destHeight = STAGE_HEIGHT) {
+function drawImageContain(image, destCtx = ctx, destWidth = STAGE_WIDTH, destHeight = STAGE_HEIGHT) {
   const sourceWidth = image.videoWidth || image.width || destWidth;
   const sourceHeight = image.videoHeight || image.height || destHeight;
-  const { sx, sy, sw, sh } = getCoverSourceRect(sourceWidth, sourceHeight, destWidth, destHeight);
-  destCtx.drawImage(image, sx, sy, sw, sh, 0, 0, destWidth, destHeight);
+  const { dx, dy, dw, dh } = getContainDestRect(sourceWidth, sourceHeight, destWidth, destHeight);
+  destCtx.drawImage(image, 0, 0, sourceWidth, sourceHeight, dx, dy, dw, dh);
 }
 
 function rand(min, max) {
@@ -181,12 +194,16 @@ async function initCamera() {
     throw new Error("이 브라우저는 웹캠 실행을 지원하지 않습니다.");
   }
 
+  const videoConstraints = isMobileSafariLike()
+    ? { facingMode: "user" }
+    : {
+        width: { ideal: CONFIG.VIDEO_WIDTH },
+        height: { ideal: CONFIG.VIDEO_HEIGHT },
+        facingMode: "user",
+      };
+
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: {
-      width: { ideal: CONFIG.VIDEO_WIDTH },
-      height: { ideal: CONFIG.VIDEO_HEIGHT },
-      facingMode: "user",
-    },
+    video: videoConstraints,
     audio: false,
   });
 
@@ -196,9 +213,11 @@ async function initCamera() {
 
   await video.play();
 
-  // 실제 화면에 표시되는 video 영역 기준으로 overlay canvas를 맞춥니다.
-  // video 자체는 CSS object-fit: cover가 담당합니다.
+  syncStageAspectToVideo();
   setStageSize();
+
+  // aspect-ratio 변경 후 브라우저 레이아웃이 한 프레임 늦게 반영되는 경우 보정합니다.
+  requestAnimationFrame(() => setStageSize(true));
 }
 
 function initSegmentation() {
@@ -223,9 +242,9 @@ function processSegmentation(results) {
   latestMaskCanvas = results.segmentationMask;
 
   offscreenMaskCtx.clearRect(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
-  // 비디오와 완전히 같은 cover crop으로 mask를 canvas 좌표계에 맞춥니다.
-  // 이렇게 해야 화면은 안 늘어나고, 외곽선/쌓임 위치도 피사체와 어긋나지 않습니다.
-  drawImageCover(latestMaskCanvas, offscreenMaskCtx, STAGE_WIDTH, STAGE_HEIGHT);
+  // 비디오와 같은 contain 방식으로 mask를 canvas 좌표계에 맞춥니다.
+  // 이렇게 해야 iPhone 전면 카메라 전체 화면이 잘리지 않고, 외곽선/쌓임도 어긋나지 않습니다.
+  drawImageContain(latestMaskCanvas, offscreenMaskCtx, STAGE_WIDTH, STAGE_HEIGHT);
 
   const imageData = offscreenMaskCtx.getImageData(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
 
@@ -687,11 +706,20 @@ function bindEvents() {
   }
 
   window.addEventListener("resize", () => {
+    syncStageAspectToVideo();
     setStageSize(true);
   });
 
   window.addEventListener("orientationchange", () => {
-    setTimeout(() => setStageSize(true), 250);
+    setTimeout(() => {
+      syncStageAspectToVideo();
+      setStageSize(true);
+    }, 250);
+  });
+
+  video?.addEventListener("loadedmetadata", () => {
+    syncStageAspectToVideo();
+    setStageSize(true);
   });
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
