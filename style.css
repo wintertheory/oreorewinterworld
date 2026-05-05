@@ -52,8 +52,9 @@ body {
 }
 
 .stage-wrap {
-  width: 960px;
+  width: min(100vw - 32px, 960px);
   max-width: 100%;
+  aspect-ratio: 16 / 9;
   position: relative;
   display: flex;
   justify-content: center;
@@ -63,9 +64,8 @@ body {
 
 #stage {
   display: block;
-  width: 960px;
-  height: 540px;
-  max-width: 100%;
+  width: 100%;
+  height: auto;
   aspect-ratio: 16 / 9;
   background: #ffffff;
 }
