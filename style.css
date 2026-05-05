@@ -1,6 +1,7 @@
 /* ============================================================
-   오래오래 겨울세상 - style.css
-   iPhone Safari: DOM video + transparent canvas overlay
+   오래오래 겨울세상 - stable responsive layout
+   Desktop: 16:9 stage
+   iPhone/mobile: native screen-shaped stage + video contain
    ============================================================ */
 
 * {
@@ -20,15 +21,22 @@ body {
   display: flex;
   justify-content: center;
   align-items: flex-start;
+  overflow-x: hidden;
 }
 
 .app {
   width: 100%;
   min-height: 100vh;
+  min-height: 100dvh;
   padding: 24px 16px 32px;
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+
+.site-header {
+  width: 100%;
+  flex: 0 0 auto;
 }
 
 .page-title {
@@ -53,35 +61,36 @@ body {
 }
 
 .stage-wrap {
-  width: min(calc(100vw - 32px), 960px);
-  max-width: 100%;
-  aspect-ratio: var(--stage-aspect, 16 / 9);
   position: relative;
-  overflow: hidden;
+  width: 960px;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
   margin: 0 auto 14px;
+  overflow: hidden;
   background: #ffffff;
+  flex: 0 0 auto;
 }
 
 #video,
 #stage {
   position: absolute;
   inset: 0;
+  display: block;
   width: 100%;
   height: 100%;
 }
 
 #video {
-  display: block;
   object-fit: contain;
   object-position: center center;
   background: #ffffff;
+  transform: scaleX(-1);
 }
 
 #stage {
-  display: block;
-  background: transparent;
+  z-index: 2;
   pointer-events: auto;
-  touch-action: manipulation;
+  background: transparent;
 }
 
 .controls {
@@ -94,6 +103,7 @@ body {
   gap: 10px 14px;
   flex-wrap: wrap;
   font-size: 12px;
+  flex: 0 0 auto;
 }
 
 button {
@@ -118,14 +128,37 @@ label {
   gap: 4px;
 }
 
+@media (max-width: 768px), (pointer: coarse) {
+  body {
+    align-items: stretch;
+  }
 
-@media (max-width: 700px) {
   .app {
-    padding: 18px 10px 28px;
+    padding: max(12px, env(safe-area-inset-top)) 0 max(10px, env(safe-area-inset-bottom));
+    min-height: 100dvh;
+  }
+
+  .site-header {
+    padding: 0 12px;
+  }
+
+  .title-hint {
+    margin-bottom: 10px;
   }
 
   .stage-wrap {
-    width: calc(100vw - 20px);
-    aspect-ratio: var(--stage-aspect, 4 / 3);
+    width: 100vw;
+    max-width: none;
+    height: calc(100dvh - 92px);
+    min-height: 360px;
+    max-height: none;
+    aspect-ratio: auto;
+    margin: 0 0 10px;
+  }
+
+  .controls {
+    width: 100%;
+    padding: 0 12px;
+    margin-bottom: 0;
   }
 }
