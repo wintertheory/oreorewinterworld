@@ -611,7 +611,7 @@ function bindEvents() {
   if (canvas) {
     canvas.addEventListener("click", togglePause);
     canvas.style.cursor = "pointer";
-    canvas.title = "클릭하면 정지 또는 재생됩니다.";
+    canvas.title = "화면을 누르면 세상이 멈춰요.";
   }
 
   window.addEventListener("resize", () => syncCanvasToDisplaySize(true));
