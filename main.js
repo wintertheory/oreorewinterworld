@@ -88,25 +88,55 @@ let offscreenMaskCtx = offscreenMaskCanvas.getContext("2d", { willReadFrequently
 let stackMap = new Map();
 
 // iOS Safari에서는 요청한 카메라 크기와 실제 video 크기가 다를 수 있습니다.
-// 모든 계산(canvas, mask, particle, outline)을 실제 video 해상도 기준으로 맞춥니다.
-let STAGE_WIDTH = STAGE_WIDTH;
-let STAGE_HEIGHT = STAGE_HEIGHT;
+// 화면/canvas는 16:9 기준으로 유지하고, 실제 카메라 영상과 segmentation mask는
+// 같은 cover crop 규칙으로 그려서 화면 늘어짐과 mask 위치 어긋남을 동시에 막습니다.
+let STAGE_WIDTH = CONFIG.VIDEO_WIDTH;
+let STAGE_HEIGHT = CONFIG.VIDEO_HEIGHT;
 
-function setStageSize(width, height) {
-  STAGE_WIDTH = Math.max(1, Math.round(width || CONFIG.VIDEO_WIDTH));
-  STAGE_HEIGHT = Math.max(1, Math.round(height || CONFIG.VIDEO_HEIGHT));
+function setStageSize() {
+  STAGE_WIDTH = CONFIG.VIDEO_WIDTH;
+  STAGE_HEIGHT = CONFIG.VIDEO_HEIGHT;
 
   canvas.width = STAGE_WIDTH;
   canvas.height = STAGE_HEIGHT;
 
-  // CSS는 실제 비율만 전달하고, 픽셀 크기는 반응형 CSS에 맡깁니다.
+  // CSS 픽셀 크기는 반응형 CSS에 맡기고, 내부 좌표계는 960x540으로 고정합니다.
   canvas.style.width = "";
   canvas.style.height = "";
-  canvas.style.aspectRatio = `${STAGE_WIDTH} / ${STAGE_HEIGHT}`;
-  canvas.parentElement?.style.setProperty("aspect-ratio", `${STAGE_WIDTH} / ${STAGE_HEIGHT}`);
+  canvas.style.aspectRatio = `${CONFIG.VIDEO_WIDTH} / ${CONFIG.VIDEO_HEIGHT}`;
+  canvas.parentElement?.style.setProperty("aspect-ratio", `${CONFIG.VIDEO_WIDTH} / ${CONFIG.VIDEO_HEIGHT}`);
 
   offscreenMaskCanvas.width = STAGE_WIDTH;
   offscreenMaskCanvas.height = STAGE_HEIGHT;
+}
+
+function getCoverSourceRect(sourceWidth, sourceHeight, destWidth = STAGE_WIDTH, destHeight = STAGE_HEIGHT) {
+  const sw0 = Math.max(1, sourceWidth || destWidth);
+  const sh0 = Math.max(1, sourceHeight || destHeight);
+  const sourceRatio = sw0 / sh0;
+  const destRatio = destWidth / destHeight;
+
+  let sx = 0;
+  let sy = 0;
+  let sw = sw0;
+  let sh = sh0;
+
+  if (sourceRatio > destRatio) {
+    sw = sh0 * destRatio;
+    sx = (sw0 - sw) / 2;
+  } else if (sourceRatio < destRatio) {
+    sh = sw0 / destRatio;
+    sy = (sh0 - sh) / 2;
+  }
+
+  return { sx, sy, sw, sh };
+}
+
+function drawImageCover(image, destCtx = ctx, destWidth = STAGE_WIDTH, destHeight = STAGE_HEIGHT) {
+  const sourceWidth = image.videoWidth || image.width || destWidth;
+  const sourceHeight = image.videoHeight || image.height || destHeight;
+  const { sx, sy, sw, sh } = getCoverSourceRect(sourceWidth, sourceHeight, destWidth, destHeight);
+  destCtx.drawImage(image, sx, sy, sw, sh, 0, 0, destWidth, destHeight);
 }
 
 function rand(min, max) {
@@ -150,13 +180,10 @@ async function initCamera() {
   await video.play();
 
   // iOS Safari는 ideal 960x540 요청을 무시하고 4:3 또는 기기 고유 해상도를 줄 수 있습니다.
-  // 실제 입력 해상도를 기준으로 canvas/mask/particle 좌표계를 다시 맞춥니다.
-  const actualVideoWidth = video.videoWidth || CONFIG.VIDEO_WIDTH;
-  const actualVideoHeight = video.videoHeight || CONFIG.VIDEO_HEIGHT;
-
-  video.width = actualVideoWidth;
-  video.height = actualVideoHeight;
-  setStageSize(actualVideoWidth, actualVideoHeight);
+  // canvas는 16:9로 유지하고, 실제 영상은 cover crop으로 비율을 보존해서 그립니다.
+  video.width = video.videoWidth || CONFIG.VIDEO_WIDTH;
+  video.height = video.videoHeight || CONFIG.VIDEO_HEIGHT;
+  setStageSize();
 }
 
 function initSegmentation() {
@@ -181,13 +208,9 @@ function processSegmentation(results) {
   latestMaskCanvas = results.segmentationMask;
 
   offscreenMaskCtx.clearRect(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
-  offscreenMaskCtx.drawImage(
-    latestMaskCanvas,
-    0,
-    0,
-    STAGE_WIDTH,
-    STAGE_HEIGHT
-  );
+  // 비디오와 완전히 같은 cover crop으로 mask를 canvas 좌표계에 맞춥니다.
+  // 이렇게 해야 화면은 안 늘어나고, 외곽선/쌓임 위치도 피사체와 어긋나지 않습니다.
+  drawImageCover(latestMaskCanvas, offscreenMaskCtx, STAGE_WIDTH, STAGE_HEIGHT);
 
   const imageData = offscreenMaskCtx.getImageData(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
 
@@ -515,7 +538,7 @@ function togglePause() {
 }
 
 function drawVideo() {
-  ctx.drawImage(video, 0, 0, STAGE_WIDTH, STAGE_HEIGHT);
+  drawImageCover(video, ctx, STAGE_WIDTH, STAGE_HEIGHT);
 }
 
 function drawMaskDebug() {
@@ -523,7 +546,7 @@ function drawMaskDebug() {
 
   ctx.save();
   ctx.globalAlpha = 0.28;
-  ctx.drawImage(latestMaskCanvas, 0, 0, STAGE_WIDTH, STAGE_HEIGHT);
+  ctx.drawImage(offscreenMaskCanvas, 0, 0, STAGE_WIDTH, STAGE_HEIGHT);
   ctx.restore();
 }
 
