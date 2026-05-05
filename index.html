@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>* 오래오래 겨울세상 *</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main class="app">
+    <h1 class="page-title">* 오래오래 겨울세상 *</h1>
+    <div class="title-hint">시작 버튼을 누른 뒤 카메라 권한을 허용하세요</div>
+
+    <section class="stage-wrap" aria-label="웹캠 인터랙션 화면">
+      <canvas id="stage" width="960" height="540"></canvas>
+      <video id="video" playsinline muted></video>
+    </section>
+
+    <section class="controls" aria-label="컨트롤">
+      <button id="startBtn" type="button">시작</button>
+        <div style="display:none;">
+          <label><input id="outlineToggle" type="checkbox" /> 외곽선 표시</label>
+          <label><input id="maskToggle" type="checkbox" /> 마스크 보기</label>
+        </div>
+      <button id="clearBtn" type="button">제설</button>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1/selfie_segmentation.js"></script>
+  <script src="./main.js"></script>
+</body>
+</html>

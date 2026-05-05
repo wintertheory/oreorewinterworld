@@ -1,0 +1,109 @@
+/* ============================================================
+   오래오래 겨울세상 - style.css
+   ============================================================ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: #ffffff;
+  color: #111111;
+  font-family: Dotum, 돋움, Apple SD Gothic Neo, sans-serif;
+}
+
+body {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.app {
+  width: 100%;
+  min-height: 100vh;
+  padding: 24px 16px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.page-title {
+  width: 100%;
+  margin: 0;
+  text-align: center;
+  font-family: Dotum, 돋움, Apple SD Gothic Neo, sans-serif;
+  font-size: 10pt;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.title-hint {
+  width: 100%;
+  margin: 6px 0 14px;
+  text-align: center;
+  font-family: Dotum, 돋움, Apple SD Gothic Neo, sans-serif;
+  font-size: 6pt; /* 타이틀 10pt의 60% */
+  font-weight: 400;
+  line-height: 1.4;
+  color: #999999;
+}
+
+.stage-wrap {
+  width: 960px;
+  max-width: 100%;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 0 auto 14px;
+}
+
+#stage {
+  display: block;
+  width: 960px;
+  height: 540px;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #ffffff;
+}
+
+#video {
+  display: none;
+}
+
+.controls {
+  width: 960px;
+  max-width: 100%;
+  margin: 0 auto 10px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+button {
+  border: 1px solid #222222;
+  background: #ffffff;
+  color: #111111;
+  padding: 6px 12px;
+  border-radius: 0;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
