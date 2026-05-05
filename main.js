@@ -87,27 +87,42 @@ let offscreenMaskCanvas = document.createElement("canvas");
 let offscreenMaskCtx = offscreenMaskCanvas.getContext("2d", { willReadFrequently: true });
 let stackMap = new Map();
 
-// iOS Safari에서는 요청한 카메라 크기와 실제 video 크기가 다를 수 있습니다.
-// 화면/canvas는 16:9 기준으로 유지하고, 실제 카메라 영상과 segmentation mask는
-// 같은 cover crop 규칙으로 그려서 화면 늘어짐과 mask 위치 어긋남을 동시에 막습니다.
+// iPhone Safari 대응 구조:
+// video는 DOM 레이어에서 object-fit: cover로 직접 표시하고,
+// canvas는 그 위에 눈/외곽선만 그리는 투명 overlay로 사용합니다.
+// 이렇게 해야 카메라 화면이 canvas로 강제 stretch 되지 않습니다.
+const stageWrap = document.querySelector(".stage-wrap");
 let STAGE_WIDTH = CONFIG.VIDEO_WIDTH;
 let STAGE_HEIGHT = CONFIG.VIDEO_HEIGHT;
 
-function setStageSize() {
-  STAGE_WIDTH = CONFIG.VIDEO_WIDTH;
-  STAGE_HEIGHT = CONFIG.VIDEO_HEIGHT;
+function setStageSize(preserveParticles = false) {
+  const rect = stageWrap?.getBoundingClientRect();
+  const nextWidth = Math.max(1, Math.round(rect?.width || CONFIG.VIDEO_WIDTH));
+  const nextHeight = Math.max(1, Math.round(rect?.height || CONFIG.VIDEO_HEIGHT));
+
+  const prevWidth = STAGE_WIDTH || nextWidth;
+  const prevHeight = STAGE_HEIGHT || nextHeight;
+
+  STAGE_WIDTH = nextWidth;
+  STAGE_HEIGHT = nextHeight;
 
   canvas.width = STAGE_WIDTH;
   canvas.height = STAGE_HEIGHT;
-
-  // CSS 픽셀 크기는 반응형 CSS에 맡기고, 내부 좌표계는 960x540으로 고정합니다.
-  canvas.style.width = "";
-  canvas.style.height = "";
-  canvas.style.aspectRatio = `${CONFIG.VIDEO_WIDTH} / ${CONFIG.VIDEO_HEIGHT}`;
-  canvas.parentElement?.style.setProperty("aspect-ratio", `${CONFIG.VIDEO_WIDTH} / ${CONFIG.VIDEO_HEIGHT}`);
+  canvas.style.width = "100%";
+  canvas.style.height = "100%";
 
   offscreenMaskCanvas.width = STAGE_WIDTH;
   offscreenMaskCanvas.height = STAGE_HEIGHT;
+
+  if (preserveParticles && (prevWidth !== STAGE_WIDTH || prevHeight !== STAGE_HEIGHT)) {
+    const sx = STAGE_WIDTH / prevWidth;
+    const sy = STAGE_HEIGHT / prevHeight;
+    for (const p of [...fallingParticles, ...settledParticles]) {
+      p.x *= sx;
+      p.y *= sy;
+    }
+    rebuildStackMap();
+  }
 }
 
 function getCoverSourceRect(sourceWidth, sourceHeight, destWidth = STAGE_WIDTH, destHeight = STAGE_HEIGHT) {
@@ -176,13 +191,13 @@ async function initCamera() {
   });
 
   video.srcObject = stream;
+  video.setAttribute("playsinline", "");
+  video.muted = true;
 
   await video.play();
 
-  // iOS Safari는 ideal 960x540 요청을 무시하고 4:3 또는 기기 고유 해상도를 줄 수 있습니다.
-  // canvas는 16:9로 유지하고, 실제 영상은 cover crop으로 비율을 보존해서 그립니다.
-  video.width = video.videoWidth || CONFIG.VIDEO_WIDTH;
-  video.height = video.videoHeight || CONFIG.VIDEO_HEIGHT;
+  // 실제 화면에 표시되는 video 영역 기준으로 overlay canvas를 맞춥니다.
+  // video 자체는 CSS object-fit: cover가 담당합니다.
   setStageSize();
 }
 
@@ -538,7 +553,8 @@ function togglePause() {
 }
 
 function drawVideo() {
-  drawImageCover(video, ctx, STAGE_WIDTH, STAGE_HEIGHT);
+  // video는 DOM 레이어에서 직접 표시합니다.
+  // canvas에 다시 그리면 iPhone Safari에서 가로/세로 stretch가 생길 수 있습니다.
 }
 
 function drawMaskDebug() {
@@ -605,7 +621,6 @@ function drawSnowParticle(p, settled = false) {
 function drawScene() {
   ctx.clearRect(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
 
-  drawVideo();
   drawMaskDebug();
   drawOutline();
 
@@ -660,6 +675,8 @@ async function startExperience() {
 }
 
 function bindEvents() {
+  setStageSize();
+
   if (startBtn) startBtn.addEventListener("click", startExperience);
   if (clearBtn) clearBtn.addEventListener("click", clearSnow);
 
@@ -669,8 +686,15 @@ function bindEvents() {
     canvas.title = "클릭하면 정지 또는 재생됩니다.";
   }
 
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  window.addEventListener("resize", () => {
+    setStageSize(true);
+  });
+
+  window.addEventListener("orientationchange", () => {
+    setTimeout(() => setStageSize(true), 250);
+  });
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 
 document.addEventListener("DOMContentLoaded", bindEvents);
